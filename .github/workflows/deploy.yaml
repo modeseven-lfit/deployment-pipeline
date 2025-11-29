@@ -228,11 +228,15 @@ jobs:
           echo "Target organization: ${{ matrix.github_org }}"
           echo "Projects filter: ${{ matrix.projects }}"
 
+          # Use HTTP for discovery and HTTPS for cloning to avoid SSH requirements
+          # in CI/CD environments (no SSH keys or known_hosts needed)
           gerrit-clone mirror \
             --server "${{ matrix.server }}" \
             --org "${{ matrix.github_org }}" \
             --path "${{ runner.temp }}/mirror-${{ matrix.slug }}" \
             --projects "${{ matrix.projects }}" \
+            --discovery-method http \
+            --https \
             --verbose
 
       - name: "Extract .github skeleton"
