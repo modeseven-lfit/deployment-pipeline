@@ -1,0 +1,37 @@
+[
+  {
+    "github_username": "ModeSevenIndustrialSolutions",
+    "projects": [
+      {
+        "project": "ONAP",
+        "slug": "onap",
+        "server": "gerrit.onap.org",
+        "github_org": "modeseven-onap",
+        "projects": "ccsdk, oom, cps",
+        "deploy_repo": "modeseven-lfit/workflow-deployment",
+        "skeleton_repo": "modeseven-onap/deployed-workflows",
+        "prune": "true"
+      },
+      {
+        "project": "OpenDaylight",
+        "slug": "odl",
+        "server": "git.opendaylight.org",
+        "github_org": "modeseven-opendaylight",
+        "projects": "yangtools, serviceutils",
+        "deploy_repo": "modeseven-lfit/workflow-deployment",
+        "skeleton_repo": "modeseven-opendaylight/deployed-workflows",
+        "prune": "true"
+      },
+      {
+        "project": "O-RAN-SC",
+        "slug": "oransc",
+        "server": "gerrit.o-ran-sc.org",
+        "github_org": "modeseven-o-ran-sc",
+        "projects": "aiml-fw-athp-data-extraction, ric-plt-submgr",
+        "deploy_repo": "modeseven-lfit/workflow-deployment",
+        "skeleton_repo": "modeseven-o-ran-sc/deployed-workflows",
+        "prune": "true"
+      }
+    ]
+  }
+]

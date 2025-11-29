@@ -1,0 +1,356 @@
+---
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2025 The Linux Foundation
+
+name: "Deployment Pipeline 🔨"
+
+# yamllint disable-line rule:truthy
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  validate-config:
+    name: "Validate Configuration"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    outputs:
+      config-matrix: ${{ steps.generate-matrix.outputs.matrix }}
+    steps:
+      - name: "Harden Runner"
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@0080882f6c36860b6ba35c610c98ce87d4e2f26f # v2.10.2
+        with:
+          egress-policy: audit
+
+      - name: "Checkout repository"
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: "Setup Python"
+        # yamllint disable-line rule:line-length
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+
+      - name: "Validate JSON configuration"
+        env:
+          PAT_TOKENS_JSON: ${{ secrets.PAT_TOKENS_JSON }}
+          DEPLOY_CONFIG_JSON: ${{ vars.DEPLOY_CONFIG_JSON }}
+          GITHUB_OUTPUT_DIR: ${{ runner.temp }}/config
+        run: |
+          python scripts/validate_config.py
+
+      - name: "Generate matrix configuration"
+        id: generate-matrix
+        run: |
+          # Generate matrix JSON for GitHub Actions
+          # Format: array of {username, project, slug, server, org, ...}
+          python3 << 'EOF'
+          import json
+          from pathlib import Path
+
+          config_file = Path("${{ runner.temp }}/config/validated_config.json")
+          config = json.loads(config_file.read_text())
+
+          matrix_items = []
+          for user in config:
+              username = user["github_username"]
+              for project in user["projects"]:
+                  matrix_items.append({
+                      "username": username,
+                      "project": project["project"],
+                      "slug": project["slug"],
+                      "server": project["server"],
+                      "github_org": project["github_org"],
+                      "projects": project["projects"],
+                      "deploy_repo": project["deploy_repo"],
+                      "skeleton_repo": project["skeleton_repo"],
+                      "prune": project["prune"],
+                  })
+
+          matrix = {"include": matrix_items}
+          print(f"matrix={json.dumps(matrix)}")
+
+          with open("$GITHUB_OUTPUT", "a") as f:
+              f.write(f"matrix={json.dumps(matrix)}\n")
+          EOF
+
+      - name: "Upload validated configuration"
+        # yamllint disable-line rule:line-length
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f4ebda1633 # v4.6.0
+        with:
+          name: validated-config
+          path: ${{ runner.temp }}/config/
+          retention-days: 1
+
+  deploy-projects:
+    name: "Deploy: ${{ matrix.project }}"
+    needs: validate-config
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.validate-config.outputs.config-matrix) }}
+    steps:
+      - name: "Harden Runner"
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@0080882f6c36860b6ba35c610c98ce87d4e2f26f # v2.10.2
+        with:
+          egress-policy: audit
+
+      - name: "Checkout deployment-pipeline"
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: "Setup Python"
+        # yamllint disable-line rule:line-length
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+
+      - name: "Download validated configuration"
+        # yamllint disable-line rule:line-length
+        uses: actions/download-artifact@1f0a8f73bd04cb22a3b73d36d625c10475a6e4eb # v4.6.0
+        with:
+          name: validated-config
+          path: ${{ runner.temp }}/config/
+
+      - name: "Get GitHub PAT token"
+        id: get-token
+        run: |
+          # Extract token for this org from PAT_TOKENS_JSON
+          python3 << 'EOF'
+          import json
+          import os
+
+          tokens_json = """${{ secrets.PAT_TOKENS_JSON }}"""
+          tokens = json.loads(tokens_json)
+
+          target_org = "${{ matrix.github_org }}"
+          token = None
+
+          for item in tokens:
+              if item["github_org"] == target_org:
+                  token = item["github_token"]
+                  break
+
+          if not token:
+              print(f"ERROR: No token found for org {target_org}")
+              exit(1)
+
+          # Write to GITHUB_OUTPUT
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"token={token}\n")
+          EOF
+
+      - name: "Install uv (Python package manager)"
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: "Install gerrit-clone CLI"
+        run: |
+          uv tool install gerrit-clone
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: "Mirror Gerrit to GitHub"
+        env:
+          GITHUB_TOKEN: ${{ steps.get-token.outputs.token }}
+        run: |
+          echo "Mirroring ${{ matrix.project }} from ${{ matrix.server }}"
+          echo "Target organization: ${{ matrix.github_org }}"
+          echo "Projects filter: ${{ matrix.projects }}"
+
+          gerrit-clone mirror \
+            --server "${{ matrix.server }}" \
+            --org "${{ matrix.github_org }}" \
+            --path "${{ runner.temp }}/mirror-${{ matrix.slug }}" \
+            --projects "${{ matrix.projects }}" \
+            --skip-archived \
+            --verbose
+
+      - name: "Extract .github skeleton"
+        run: |
+          SKELETON_DIR="${{ runner.temp }}/skeleton-${{ matrix.slug }}"
+
+          echo "Extracting .github content from mirrored repos..."
+          python scripts/extract_github_skeleton.py \
+            --source-dir "${{ runner.temp }}/mirror-${{ matrix.slug }}" \
+            --output-dir "$SKELETON_DIR" \
+            ${{ matrix.prune && '--prune-empty' || '--no-prune-empty' }} \
+            --stats-file "${{ runner.temp }}/skeleton-stats.json"
+
+      - name: "Clone workflow-deployment repository"
+        continue-on-error: true
+        id: clone-deploy-repo
+        run: |
+          DEPLOY_REPO="${{ matrix.deploy_repo }}"
+          DEPLOY_DIR="${{ runner.temp }}/workflow-deployment"
+
+          echo "Cloning workflow-deployment repository: $DEPLOY_REPO"
+
+          if git clone \
+            "https://github.com/$DEPLOY_REPO.git" "$DEPLOY_DIR"; then
+            echo "✓ Successfully cloned $DEPLOY_REPO"
+            echo "cloned=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "⚠ Failed to clone $DEPLOY_REPO (not an error)"
+            echo "cloned=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: "Apply workflow overlays"
+        if: steps.clone-deploy-repo.outputs.cloned == 'true'
+        run: |
+          DEPLOY_DIR="${{ runner.temp }}/workflow-deployment"
+          MIRROR_DIR="${{ runner.temp }}/mirror-${{ matrix.slug }}"
+
+          echo "Applying workflow overlays for project: ${{ matrix.slug }}"
+          python scripts/apply_workflow_overlay.py \
+            --overlay-dir "$DEPLOY_DIR" \
+            --target-dir "$MIRROR_DIR" \
+            --project-slug "${{ matrix.slug }}" \
+            --stats-file "${{ runner.temp }}/overlay-stats.json"
+
+      - name: "Setup git configuration"
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      - name: "Push skeleton to GitHub"
+        env:
+          GITHUB_TOKEN: ${{ steps.get-token.outputs.token }}
+        run: |
+          SKELETON_DIR="${{ runner.temp }}/skeleton-${{ matrix.slug }}"
+          SKELETON_REPO="${{ matrix.skeleton_repo }}"
+
+          # Extract repo name from owner/repo format
+          REPO_NAME="${SKELETON_REPO##*/}"
+
+          echo "Pushing skeleton to $SKELETON_REPO..."
+          python scripts/push_to_github.py \
+            --mode skeleton \
+            --source-dir "$SKELETON_DIR" \
+            --org "${{ matrix.github_org }}" \
+            --repo "$REPO_NAME" \
+            --token "$GITHUB_TOKEN" \
+            --project-name "${{ matrix.project }}" \
+            --stats-file "${{ runner.temp }}/skeleton-push-stats.json"
+
+      - name: "Push overlays to repositories"
+        if: steps.clone-deploy-repo.outputs.cloned == 'true'
+        env:
+          GITHUB_TOKEN: ${{ steps.get-token.outputs.token }}
+        run: |
+          MIRROR_DIR="${{ runner.temp }}/mirror-${{ matrix.slug }}"
+
+          echo "Pushing workflow overlays to repositories..."
+          python scripts/push_to_github.py \
+            --mode overlay \
+            --source-dir "$MIRROR_DIR" \
+            --org "${{ matrix.github_org }}" \
+            --token "$GITHUB_TOKEN" \
+            --project-name "${{ matrix.project }}" \
+            --stats-file "${{ runner.temp }}/overlay-push-stats.json"
+
+      - name: "Upload deployment statistics"
+        if: always()
+        # yamllint disable-line rule:line-length
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f4ebda1633 # v4.6.0
+        with:
+          name: stats-${{ matrix.slug }}
+          path: ${{ runner.temp }}/*-stats.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: "Generate job summary"
+        if: always()
+        run: |
+          {
+            echo "## Deployment Summary: ${{ matrix.project }}"
+            echo ""
+            echo "- **Project:** ${{ matrix.project }}"
+            echo "- **Slug:** ${{ matrix.slug }}"
+            echo "- **Server:** ${{ matrix.server }}"
+            echo "- **Organization:** ${{ matrix.github_org }}"
+            echo "- **Skeleton Repository:** ${{ matrix.skeleton_repo }}"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Add statistics if available
+          if [ -f "${{ runner.temp }}/skeleton-stats.json" ]; then
+            echo "### Skeleton Extraction" >> "$GITHUB_STEP_SUMMARY"
+            python3 << 'EOF'
+          import json
+          from pathlib import Path
+
+          stats_file = Path("${{ runner.temp }}/skeleton-stats.json")
+          if stats_file.exists():
+              stats = json.loads(stats_file.read_text())
+              print(
+                f"- Total repositories: {stats.get('total_repos', 0)}"
+              )
+              print(f"- With .github: {stats.get('repos_with_github', 0)}")
+              print(
+                f"- Without .github: {stats.get('repos_without_github', 0)}"
+              )
+              print(f"- Total files: {stats.get('total_files', 0)}")
+          EOF
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -f "${{ runner.temp }}/overlay-stats.json" ]; then
+            echo "### Workflow Overlays" >> "$GITHUB_STEP_SUMMARY"
+            python3 << 'EOF'
+          import json
+          from pathlib import Path
+
+          stats_file = Path("${{ runner.temp }}/overlay-stats.json")
+          if stats_file.exists():
+              stats = json.loads(stats_file.read_text())
+              print(
+                f"- Repositories updated: {stats.get('repos_updated', 0)}"
+              )
+              print(f"- Files copied: {stats.get('files_copied', 0)}")
+              print(f"- Files overwritten: {stats.get('files_overwritten', 0)}")
+          EOF
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  summary:
+    name: "Deployment Summary"
+    needs: [validate-config, deploy-projects]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: "Generate overall summary"
+        run: |
+          {
+            echo "## Overall Deployment Summary"
+            echo ""
+            echo "Deployment pipeline completed."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${{ needs.deploy-projects.result }}" = "success" ]; then
+            echo "✅ All projects deployed successfully" \
+              >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ needs.deploy-projects.result }}" = "failure" ]; then
+            echo "❌ Some projects failed to deploy" \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "⚠️ Deployment status: ${{ needs.deploy-projects.result }}" \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -1,0 +1,14 @@
+[
+  {
+    "github_org": "modeseven-onap",
+    "github_token": "github_pat_11AAAAAA_EXAMPLE_TOKEN_REPLACE_ME"
+  },
+  {
+    "github_org": "modeseven-o-ran-sc",
+    "github_token": "github_pat_11BBBBBB_EXAMPLE_TOKEN_REPLACE_ME"
+  },
+  {
+    "github_org": "modeseven-opendaylight",
+    "github_token": "github_pat_11CCCCCC_EXAMPLE_TOKEN_REPLACE_ME"
+  }
+]
