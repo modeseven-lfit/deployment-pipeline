@@ -85,7 +85,7 @@ jobs:
 
       - name: "Upload validated configuration"
         # yamllint disable-line rule:line-length
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f4ebda1633 # v4.6.0
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: validated-config
           path: ${{ runner.temp }}/config/
@@ -120,7 +120,7 @@ jobs:
 
       - name: "Download validated configuration"
         # yamllint disable-line rule:line-length
-        uses: actions/download-artifact@1f0a8f73bd04cb22a3b73d36d625c10475a6e4eb # v4.6.0
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           name: validated-config
           path: ${{ runner.temp }}/config/
@@ -265,7 +265,7 @@ jobs:
       - name: "Upload deployment statistics"
         if: always()
         # yamllint disable-line rule:line-length
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f4ebda1633 # v4.6.0
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: stats-${{ matrix.slug }}
           path: ${{ runner.temp }}/*-stats.json
