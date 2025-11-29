@@ -233,7 +233,6 @@ jobs:
             --org "${{ matrix.github_org }}" \
             --path "${{ runner.temp }}/mirror-${{ matrix.slug }}" \
             --projects "${{ matrix.projects }}" \
-            --skip-archived \
             --verbose
 
       - name: "Extract .github skeleton"
