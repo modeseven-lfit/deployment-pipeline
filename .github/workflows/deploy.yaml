@@ -21,8 +21,6 @@ jobs:
     permissions:
       contents: read
     timeout-minutes: 5
-    outputs:
-      config-matrix: ${{ steps.generate-matrix.outputs.matrix }}
     steps:
       - name: "Harden Runner"
         # yamllint disable-line rule:line-length
@@ -47,6 +45,37 @@ jobs:
           GITHUB_OUTPUT_DIR: ${{ runner.temp }}/config
         run: |
           python scripts/validate_config.py
+
+      - name: "Upload validated configuration"
+        # yamllint disable-line rule:line-length
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: validated-config
+          path: ${{ runner.temp }}/config/
+          retention-days: 1
+
+  generate-matrix:
+    name: "Generate Matrix"
+    needs: validate-config
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    outputs:
+      config-matrix: ${{ steps.generate-matrix.outputs.matrix }}
+    steps:
+      - name: "Harden Runner"
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@0080882f6c36860b6ba35c610c98ce87d4e2f26f # v2.10.2
+        with:
+          egress-policy: audit
+
+      - name: "Download validated configuration"
+        # yamllint disable-line rule:line-length
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: validated-config
+          path: ${{ runner.temp }}/config/
 
       - name: "Generate matrix configuration"
         id: generate-matrix
@@ -119,24 +148,16 @@ jobs:
             echo "Matrix: ${{ steps.generate-matrix.outputs.matrix }}"
           fi
 
-      - name: "Upload validated configuration"
-        # yamllint disable-line rule:line-length
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
-        with:
-          name: validated-config
-          path: ${{ runner.temp }}/config/
-          retention-days: 1
-
   deploy-projects:
     name: "Deploy: ${{ matrix.project }}"
-    needs: validate-config
+    needs: [validate-config, generate-matrix]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     timeout-minutes: 120
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.validate-config.outputs.config-matrix) }}
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.config-matrix) }}
     steps:
       - name: "Harden Runner"
         # yamllint disable-line rule:line-length
@@ -364,7 +385,7 @@ jobs:
 
   summary:
     name: "Deployment Summary"
-    needs: [validate-config, deploy-projects]
+    needs: [validate-config, generate-matrix, deploy-projects]
     if: always()
     runs-on: ubuntu-latest
     permissions:
