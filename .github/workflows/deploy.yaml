@@ -50,38 +50,74 @@ jobs:
 
       - name: "Generate matrix configuration"
         id: generate-matrix
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
         run: |
           # Generate matrix JSON for GitHub Actions
           # Format: array of {username, project, slug, server, org, ...}
           python3 << 'EOF'
           import json
+          import os
+          import sys
           from pathlib import Path
 
-          config_file = Path("${{ runner.temp }}/config/validated_config.json")
-          config = json.loads(config_file.read_text())
+          try:
+              config_file = Path(os.environ["RUNNER_TEMP"]) / "config" / "validated_config.json"
+              
+              if not config_file.exists():
+                  print(f"ERROR: Config file not found: {config_file}")
+                  sys.exit(1)
+              
+              config = json.loads(config_file.read_text())
 
-          matrix_items = []
-          for user in config:
-              username = user["github_username"]
-              for project in user["projects"]:
-                  matrix_items.append({
-                      "username": username,
-                      "project": project["project"],
-                      "slug": project["slug"],
-                      "server": project["server"],
-                      "github_org": project["github_org"],
-                      "projects": project["projects"],
-                      "deploy_repo": project["deploy_repo"],
-                      "skeleton_repo": project["skeleton_repo"],
-                      "prune": project["prune"],
-                  })
+              matrix_items = []
+              for user in config:
+                  username = user["github_username"]
+                  for project in user["projects"]:
+                      matrix_items.append({
+                          "username": username,
+                          "project": project["project"],
+                          "slug": project["slug"],
+                          "server": project["server"],
+                          "github_org": project["github_org"],
+                          "projects": project["projects"],
+                          "deploy_repo": project["deploy_repo"],
+                          "skeleton_repo": project["skeleton_repo"],
+                          "prune": project["prune"],
+                      })
 
-          matrix = {"include": matrix_items}
-          print(f"matrix={json.dumps(matrix)}")
+              if not matrix_items:
+                  print("ERROR: No matrix items generated from configuration")
+                  sys.exit(1)
 
-          with open("$GITHUB_OUTPUT", "a") as f:
-              f.write(f"matrix={json.dumps(matrix)}\n")
+              matrix = {"include": matrix_items}
+              matrix_json = json.dumps(matrix)
+              
+              print(f"✓ Generated matrix with {len(matrix_items)} items")
+              print(f"Matrix JSON length: {len(matrix_json)} characters")
+
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write(f"matrix={matrix_json}\n")
+              
+              print("✓ Matrix written to GITHUB_OUTPUT")
+              
+          except Exception as e:
+              print(f"ERROR: Failed to generate matrix: {e}")
+              import traceback
+              traceback.print_exc()
+              sys.exit(1)
           EOF
+
+      - name: "Verify matrix output"
+        run: |
+          echo "Checking if matrix output was set..."
+          if [ -z "${{ steps.generate-matrix.outputs.matrix }}" ]; then
+            echo "ERROR: Matrix output is empty!"
+            exit 1
+          else
+            echo "✓ Matrix output is set"
+            echo "Matrix: ${{ steps.generate-matrix.outputs.matrix }}"
+          fi
 
       - name: "Upload validated configuration"
         # yamllint disable-line rule:line-length
