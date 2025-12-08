@@ -30,7 +30,7 @@ jobs:
 
       - name: "Checkout repository"
         # yamllint disable-line rule:line-length
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: "Setup Python"
         # yamllint disable-line rule:line-length
@@ -92,11 +92,11 @@ jobs:
 
           try:
               config_file = Path(os.environ["RUNNER_TEMP"]) / "config" / "validated_config.json"
-              
+
               if not config_file.exists():
                   print(f"ERROR: Config file not found: {config_file}")
                   sys.exit(1)
-              
+
               config = json.loads(config_file.read_text())
 
               matrix_items = []
@@ -121,15 +121,15 @@ jobs:
 
               matrix = {"include": matrix_items}
               matrix_json = json.dumps(matrix)
-              
+
               print(f"✓ Generated matrix with {len(matrix_items)} items")
               print(f"Matrix JSON length: {len(matrix_json)} characters")
 
               with open(os.environ["GITHUB_OUTPUT"], "a") as f:
                   f.write(f"matrix={matrix_json}\n")
-              
+
               print("✓ Matrix written to GITHUB_OUTPUT")
-              
+
           except Exception as e:
               print(f"ERROR: Failed to generate matrix: {e}")
               import traceback
@@ -167,7 +167,7 @@ jobs:
 
       - name: "Checkout deployment-pipeline"
         # yamllint disable-line rule:line-length
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: "Setup Python"
         # yamllint disable-line rule:line-length
